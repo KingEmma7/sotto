@@ -1,10 +1,42 @@
 import { expect, test } from "@playwright/test";
+import { guidePages } from "../src/seo/pages";
 import {
   fixture,
   loginAndUnlock,
   selectOwnerOrganisation,
   unlockCurrentPage,
 } from "./funnel-helpers";
+
+for (const javaScriptEnabled of [true, false]) {
+  test(`guide navigation follows the central list with scripting ${javaScriptEnabled ? "on" : "off"}`, async ({
+    browser, baseURL,
+  }) => {
+    const context = await browser.newContext({ baseURL, javaScriptEnabled });
+    try {
+      const page = await context.newPage();
+      await page.goto("/");
+      // The static copy button is disabled. Wait for React when scripting is on.
+      if (javaScriptEnabled) await expect(page.getByRole("button", { name: "Copy", exact: true })).toBeEnabled();
+      const nav = page.getByRole("navigation", { name: "Guides", exact: true });
+      const expected = guidePages.map((guide) => ({ href: `/${guide.slug}`, label: guide.navLabel }));
+      const readLinks = () => nav.locator("a").evaluateAll((anchors) => anchors.map((anchor) => ({
+        href: anchor.getAttribute("href"), label: anchor.textContent,
+      })));
+      expect(await readLinks()).toEqual(expected);
+      for (const guide of guidePages) {
+        await page.goto(`/${guide.slug}.html`);
+        await expect(page.getByRole("heading", { name: guide.h1, exact: true })).toBeVisible();
+        expect(await readLinks()).toEqual([
+          ...expected.filter((link) => link.href !== `/${guide.slug}`),
+          { href: "/#pricing", label: "Pricing" },
+          { href: "https://github.com/getsotto/sotto", label: "GitHub" },
+        ]);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 // The funnel regression suite (Launch gate 4): login → unlock → TeamPanel invite → Upgrade →
 // checkout handoff → return. See docs/OUTREACH.md and
